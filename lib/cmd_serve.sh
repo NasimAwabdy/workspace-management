@@ -873,6 +873,26 @@ cmd_serve() {
     warn "dependencies incomplete — see the warnings above."
   fi
 
+  # 4) Custom post-serve steps: routing, envs and deps are all in place, but no
+  #    dev server has been started yet (serve only prints the yarn commands), so
+  #    a hook can still write env the app will read on boot, or patch nginx
+  #    outside this workspace's own block. Non-fatal — the workspace is already
+  #    served, so a failing hook only warns.
+  #
+  #    A hook runs behind run_quiet + a spinner: it must NEVER prompt (use
+  #    `sudo -n`), or it will hang with the prompt hidden under the spinner.
+  #    WS_APP_DIRS carries the registry's real directory per served app, so a
+  #    hook never has to assume app-<key>.
+  local -a served_app_dirs=()
+  for app in "${served_apps[@]}"; do served_app_dirs+=("$(app_dir "$app")"); done
+  export WS_SLUG="$slug" WS_SESSION_DIR="$session_dir" \
+         WS_FRONTEND="$WT_FRONTEND" WS_BACKEND="$WT_BACKEND" \
+         WS_HOST="$host" WS_APPS="${served_apps[*]}" \
+         WS_APP_DIRS="${served_app_dirs[*]}" \
+         WS_BASE_DOMAIN="$BASE_DOMAIN" WS_VALET_NGINX_DIR="$VALET_NGINX_DIR" \
+         WS_DRY_RUN="$DRY_RUN"
+  run_hooks post-serve || warn "a post-serve hook failed — the workspace is still served."
+
   # Detail only under -v; the checks above already say what happened.
   vlog ""
   vlog "Status: '$slug' is served at https://$host"
