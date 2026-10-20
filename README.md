@@ -254,7 +254,10 @@ workspaces safe on a shared Redis: it adds `REDIS_PREFIX` / `HORIZON_PREFIX` /
 `CACHE_PREFIX` = `<slug>_…` to the backend `.env` (only when missing), turns
 Telescope off on the first serve, and runs `ws queue start`. Without it every
 worktree shares main's queues, and main's Horizon runs workspace jobs on main's
-code.
+code. Enable it together with
+`ENV_DIFF_IGNORE_KEYS="REDIS_PREFIX HORIZON_PREFIX CACHE_PREFIX TELESCOPE_ENABLED"`
+in `config.sh`. Otherwise `ws envdiff` / `ws remove` reports those keys as
+hand-made changes to port into MAIN.
 
 Hooks live in `$WSM_HOOKS_DIR/<event>/` (default `hooks/` next to the command),
 which is **gitignored** — like `config.sh`, it's yours per machine. The repo

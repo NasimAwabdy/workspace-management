@@ -28,6 +28,10 @@ when a release is tagged.
   after envs, routing and deps are in place and before any dev server starts.
   A failing hook only warns.
 - `TEST_DB_PORT` config (empty = default port).
+- `ENV_DIFF_IGNORE_KEYS` config: extra keys `ws envdiff` / `ws remove` ignore,
+  like the serve-pinned HOST/PORT ones. Set it to the isolate-backend keys, or
+  every removal lists the per-workspace `REDIS_PREFIX` as something to "port
+  into MAIN", and doing that would put MAIN on that workspace's queues.
 
 ### Fixed
 - `ws test` exported only `DB_DATABASE`. In a worktree with no `.env` /

@@ -12,8 +12,12 @@
 # HOST / PORT / HMR_PORT / STORAGE_PREFIX).
 # -----------------------------------------------------------------------------
 
-# Keys `ws serve` pins per workspace — a difference there is expected.
-ENV_SERVE_PINNED_KEYS="HOST PORT HMR_PORT STORAGE_PREFIX"
+# Keys `ws serve` pins per workspace — a difference there is expected. Plus
+# ENV_DIFF_IGNORE_KEYS from config: keys a post-serve hook writes on purpose
+# (e.g. isolate-backend.sh's REDIS_PREFIX), which must NOT be reported as
+# "port this into MAIN" — porting a per-workspace prefix into MAIN would put
+# MAIN on that workspace's queues.
+ENV_SERVE_PINNED_KEYS="HOST PORT HMR_PORT STORAGE_PREFIX ${ENV_DIFF_IGNORE_KEYS:-}"
 
 # Keys whose values are masked in terminal output (the backup keeps them whole).
 ENV_SECRET_KEY_RE='SECRET|TOKEN|PASS|KEY|PRIVATE|CREDENTIAL'

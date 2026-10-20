@@ -23,7 +23,10 @@
 #        worktree .env if you need it; later serves leave your choice alone.
 #   then `ws queue start <slug>` (no-op if a worker already runs there).
 #
-# ENABLE: copy to hooks/post-serve/ and chmod +x.
+# ENABLE: copy to hooks/post-serve/ and chmod +x, and add these keys to
+# ENV_DIFF_IGNORE_KEYS in config.sh so `ws envdiff` / `ws remove` don't report
+# them as hand-made changes to port into MAIN:
+#     ENV_DIFF_IGNORE_KEYS="REDIS_PREFIX HORIZON_PREFIX CACHE_PREFIX TELESCOPE_ENABLED"
 # Runs behind ws serve's spinner: must never prompt.
 # ---------------------------------------------------------------------------
 set -euo pipefail

@@ -259,6 +259,12 @@ QUEUE_WORKER_CMD=""
 QUEUE_WATCH_PATHS="app config routes bootstrap database .env composer.lock"
 QUEUE_ISOLATION_KEY="REDIS_PREFIX"
 QUEUE_WORKER_NICE=5
+# Extra .env keys `ws envdiff` / `ws remove` ignore, like the HOST/PORT keys
+# serve pins: keys a post-serve hook sets per workspace ON PURPOSE. With
+# isolate-backend.sh enabled, list its keys, or every removal advises porting a
+# per-workspace REDIS_PREFIX into MAIN (which would hijack that queue):
+# ENV_DIFF_IGNORE_KEYS="REDIS_PREFIX HORIZON_PREFIX CACHE_PREFIX TELESCOPE_ENABLED"
+ENV_DIFF_IGNORE_KEYS=""
 
 # ------------------------------ serving (ws serve) ---------------------------
 # `ws serve` makes a task worktree reachable at <sub>.$BASE_DOMAIN using Laravel

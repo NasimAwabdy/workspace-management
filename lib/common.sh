@@ -440,6 +440,9 @@ load_config() {
   # closed: a worker on the shared namespace steals other checkouts' jobs).
   QUEUE_ISOLATION_KEY="${QUEUE_ISOLATION_KEY:-REDIS_PREFIX}"
   QUEUE_WORKER_NICE="${QUEUE_WORKER_NICE:-5}"
+  # Extra .env keys `ws envdiff` / `ws remove` treat like serve-pinned ones
+  # (space-separated): keys a post-serve hook sets per workspace on purpose.
+  ENV_DIFF_IGNORE_KEYS="${ENV_DIFF_IGNORE_KEYS:-}"
   # Terminal opened for post-create commands (e.g. yarn serve-*, an agent).
   TERMINAL_APP="${TERMINAL_APP:-terminal}"
   # Whether `ws create` auto-opens the session terminals at all. Config or
