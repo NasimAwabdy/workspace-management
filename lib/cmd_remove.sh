@@ -346,6 +346,12 @@ cmd_remove() {
   run_hooks pre-remove \
     || { err "Aborting: a pre-remove hook failed — nothing was deleted."; exit 1; }
 
+  # The workspace's own queue worker (ws queue) runs from the backend worktree;
+  # stop it before the worktree disappears under it.
+  # shellcheck source=/dev/null
+  source "$LIB_DIR/cmd_queue.sh"
+  queue_worker_stop "$slug"
+
   # Step out of the workspace before deleting it: `ws remove` is often run from
   # inside the worktree it's tearing down, and removing the shell's own cwd
   # leaves later git/rm steps operating on a deleted directory — which aborts the

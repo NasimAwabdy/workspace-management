@@ -118,6 +118,7 @@ Everything is one command, `workspaces` (alias `ws`), with subcommands:
 | `ws serve [slug]` | Make a workspace reachable at `<sub>.<domain>` via Valet/nginx: rewrite envs, write the nginx block, install deps. Slug defaults to the current directory. Does **not** start dev servers — it prints the `yarn serve-*` commands. |
 | `ws remove [slug]` | Tear a workspace down safely: revert routing, remove worktrees, delete branches, clean the session dir. Refuses on unpushed work unless `--force`. Slug defaults to cwd. |
 | `ws test [slug] [args]` | Run the backend suite against the workspace's **own** MySQL test DB (created on demand; args pass through to phpunit), so concurrent runs in different workspaces can't `migrate:fresh` over each other. Fails closed: no isolated DB → no run. Slug defaults to cwd. |
+| `ws queue [status\|start\|stop\|restart\|logs] [slug]` | The workspace's **own** queue worker (`QUEUE_WORKER_CMD`), supervised by `bin/queue-supervisor.sh`: a resident worker that is restarted gracefully whenever PHP code, `.env` or `composer.lock` change, so jobs never run stale code and idle cost is ~0% CPU. **Fails closed**: refuses to start unless the worktree `.env` sets `QUEUE_ISOLATION_KEY` (default `REDIS_PREFIX`) to a value different from main's — a worker on the shared namespace would steal other checkouts' jobs. `status` shows pending jobs per queue and any other worker found in the worktree. Stopped by `ws remove`. State in `<session>/.ws/`. |
 | `ws trust` | One-time sudoers rule (like `valet trust`) so `ws serve` can test/reload nginx without password prompts. Covers exactly `nginx -t` and `nginx -s reload`; never stores the password. `--revoke` removes it. |
 | `ws url` | Clickable `ws://` deep links: `--install` registers a tiny macOS handler app, `--link <slug>` prints a link to paste into a task or an MR. Following a link runs the matching `ws create`/`open`/`serve` in a new terminal window. See [Deep links](#deep-links). |
 | `ws sync` | Recompute each workspace's VS Code Source Control ignore-list so every window shows only its own two worktrees. Runs automatically on `create`/`remove`. |
@@ -241,6 +242,14 @@ executable scripts the tool runs at a defined point. Two events:
 | --- | --- |
 | `post-create` | During `ws create`, after the workspace is provisioned and its `.code-workspace` is written, **before the IDE opens**. A failing hook only **warns** — it never undoes the create. |
 | `pre-remove` | During `ws remove`, after you confirm and **before anything is deleted** (both worktrees still exist). A hook that exits non-zero **aborts** the removal, so nothing is lost. |
+| `post-serve` | During `ws serve`, after envs, routing and deps are in place and before any dev server starts. Runs behind the spinner, so it must never prompt. A failing hook only warns. |
+
+`hooks.example/post-serve/isolate-backend.sh` is the one that makes parallel
+workspaces safe on a shared Redis: it adds `REDIS_PREFIX` / `HORIZON_PREFIX` /
+`CACHE_PREFIX` = `<slug>_…` to the backend `.env` (only when missing), turns
+Telescope off on the first serve, and runs `ws queue start`. Without it every
+worktree shares main's queues, and main's Horizon runs workspace jobs on main's
+code.
 
 Hooks live in `$WSM_HOOKS_DIR/<event>/` (default `hooks/` next to the command),
 which is **gitignored** — like `config.sh`, it's yours per machine. The repo

@@ -89,9 +89,19 @@ cmd_test() {
   test_db_ensure "$slug" \
     || { err "Could not ensure test DB '$db' — refusing to fall back to the shared one."; exit 1; }
 
+  # Credentials come from config too, not just the DB name. A worktree that
+  # was never served has no .env / .env.testing, and the test bootstrap then
+  # connected as root with NO password ("Access denied ... using password: NO"
+  # in TestCase::ensureTestDatabaseExists). The same PHPUnit/dotenv rule as for
+  # DB_DATABASE applies: an exported variable wins over phpunit.xml and .env*.
+  # These are the credentials test_db_ensure just used successfully.
+  local -a db_env=("DB_DATABASE=$db" "DB_HOST=$TEST_DB_HOST" "DB_USERNAME=$TEST_DB_USER")
+  [[ -n "$TEST_DB_PORT" ]] && db_env+=("DB_PORT=$TEST_DB_PORT")
+  db_env+=("DB_PASSWORD=$TEST_DB_PASSWORD")
+
   if "$DRY_RUN"; then
-    printf '[dry-run] cd %s && DB_DATABASE=%s php -d memory_limit=%s vendor/bin/phpunit %s\n' \
-      "$wt_backend" "$db" "$TEST_MEMORY_LIMIT" "$*"
+    printf '[dry-run] cd %s && DB_DATABASE=%s DB_HOST=%s DB_USERNAME=%s DB_PASSWORD=*** php -d memory_limit=%s vendor/bin/phpunit %s\n' \
+      "$wt_backend" "$db" "$TEST_DB_HOST" "$TEST_DB_USER" "$TEST_MEMORY_LIMIT" "$*"
     exit 0
   fi
 
@@ -99,5 +109,5 @@ cmd_test() {
   cd "$wt_backend"
   # The CLI php.ini limit is whatever the machine happens to have; a full suite
   # run exhausts a default 128M long before it finishes.
-  DB_DATABASE="$db" exec php -d memory_limit="$TEST_MEMORY_LIMIT" vendor/bin/phpunit "$@"
+  exec env "${db_env[@]}" php -d memory_limit="$TEST_MEMORY_LIMIT" vendor/bin/phpunit "$@"
 }

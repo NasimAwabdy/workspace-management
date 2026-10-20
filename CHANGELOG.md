@@ -9,6 +9,30 @@ when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- `ws queue [status|start|stop|restart|logs] [slug]`: one lightweight queue
+  worker per workspace (`QUEUE_WORKER_CMD`), supervised by
+  `bin/queue-supervisor.sh`, which restarts it gracefully when PHP code, `.env`
+  or `composer.lock` change, so jobs always run the workspace's current code.
+  The worker is resident rather than `queue:listen`, which would boot the app on
+  every poll (about 12% of a core per idle workspace). It fails closed and won't
+  start unless the worktree's `QUEUE_ISOLATION_KEY` (default `REDIS_PREFIX`)
+  differs from main's. `ws remove` stops it.
+- `hooks.example/post-serve/isolate-backend.sh`: gives each workspace its own
+  `REDIS_PREFIX` / `HORIZON_PREFIX` / `CACHE_PREFIX`, turns Telescope off on the
+  first serve and starts the workspace's queue worker. Previously every worktree
+  shared main's Redis namespace, so main's Horizon ran workspace jobs on main's
+  code (`Class "App\EntityActions\..." does not exist` in `failed_jobs`), and
+  agents worked around it by pausing main Horizon for everyone.
+- `TEST_DB_PORT` config (empty = default port).
+
+### Fixed
+- `ws test` exported only `DB_DATABASE`. In a worktree with no `.env` /
+  `.env.testing` (one that was never served), the suite then connected as root
+  with no password and failed with `Access denied ... (using password: NO)`. It
+  now also exports `DB_HOST` / `DB_USERNAME` / `DB_PASSWORD` (and `DB_PORT`)
+  from the `TEST_DB_*` config that `test_db_ensure` already uses.
+
 ## [2.21.1] — 2026-08-28
 
 ### Fixed

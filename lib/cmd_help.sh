@@ -22,6 +22,7 @@ ${C_BOLD}Commands${C_RESET}
   ${C_GREEN}mr${C_RESET} [--fe|--be|--all]      Open/create a GitLab MR per repo ${C_DIM}(only where the branch is ahead)${C_RESET}
   ${C_GREEN}remove${C_RESET} [slug] [options]   Tear a workspace down safely ${C_DIM}(defaults to cwd)${C_RESET}
   ${C_GREEN}test${C_RESET} [slug] [args]       Run the backend suite on the workspace's OWN test DB ${C_DIM}(defaults to cwd)${C_RESET}
+  ${C_GREEN}queue${C_RESET} [action] [slug]    The workspace's OWN queue worker ${C_DIM}(status|start|stop|restart|logs)${C_RESET}
   ${C_GREEN}sync${C_RESET}                     Refresh each window's Source Control repo list ${C_DIM}(auto on create/remove)${C_RESET}
   ${C_GREEN}trust${C_RESET} [--revoke]         Stop serve's sudo prompts for good ${C_DIM}(one-time sudoers rule)${C_RESET}
   ${C_GREEN}url${C_RESET} [--install|--link]  Clickable ${C_DIM}ws://${C_RESET} deep links ${C_DIM}(open/create/serve a workspace)${C_RESET}

@@ -412,11 +412,22 @@ load_config() {
   TEST_DB_ENABLED="${TEST_DB_ENABLED:-true}"
   TEST_DB_PREFIX="${TEST_DB_PREFIX:-anny_bookings_test}"
   TEST_DB_HOST="${TEST_DB_HOST:-127.0.0.1}"
+  # Empty = mysql/PDO default (3306).
+  TEST_DB_PORT="${TEST_DB_PORT:-}"
   TEST_DB_USER="${TEST_DB_USER:-root}"
   TEST_DB_PASSWORD="${TEST_DB_PASSWORD:-}"
   # memory_limit handed to php for `ws test`. The CLI php.ini default (often
   # 128M) runs out partway through a full suite.
   TEST_MEMORY_LIMIT="${TEST_MEMORY_LIMIT:-1G}"
+  # `ws queue`: per-workspace queue worker. Empty QUEUE_WORKER_CMD = feature
+  # off. Runs in the backend worktree under bin/queue-supervisor.sh, which
+  # restarts it whenever a file under QUEUE_WATCH_PATHS changes.
+  QUEUE_WORKER_CMD="${QUEUE_WORKER_CMD:-}"
+  QUEUE_WATCH_PATHS="${QUEUE_WATCH_PATHS:-app config routes bootstrap database .env composer.lock}"
+  # .env key that must differ from main's before a worker may start (fail
+  # closed: a worker on the shared namespace steals other checkouts' jobs).
+  QUEUE_ISOLATION_KEY="${QUEUE_ISOLATION_KEY:-REDIS_PREFIX}"
+  QUEUE_WORKER_NICE="${QUEUE_WORKER_NICE:-5}"
   # Terminal opened for post-create commands (e.g. yarn serve-*, an agent).
   TERMINAL_APP="${TERMINAL_APP:-terminal}"
   # Set by `ws create` when it opens the terminals itself (see cmd_create).
@@ -1048,6 +1059,7 @@ _test_db_name_ok() {
 # Run one SQL statement with the configured credentials.
 _test_db_sql() {
   local -a args=(-h "$TEST_DB_HOST" -u "$TEST_DB_USER")
+  [[ -n "$TEST_DB_PORT" ]] && args+=(-P "$TEST_DB_PORT")
   [[ -n "$TEST_DB_PASSWORD" ]] && args+=("-p${TEST_DB_PASSWORD}")
   mysql "${args[@]}" -e "$1" 2>&1
 }

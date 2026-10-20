@@ -225,6 +225,21 @@ TEST_DB_PASSWORD=""
 # "Allowed memory size exhausted" fatal rather than a test failure.
 TEST_MEMORY_LIMIT="1G"
 
+# ---------------------------- queue worker (ws queue) ------------------------
+# One lightweight queue worker PER WORKSPACE (`ws queue start|stop|status`),
+# running the workspace's own code on the workspace's own Redis namespace. It
+# is supervised by bin/queue-supervisor.sh, which restarts it gracefully when
+# a file under QUEUE_WATCH_PATHS changes, so jobs never run stale code.
+# Empty QUEUE_WORKER_CMD = feature off. The worker REFUSES to start unless the
+# worktree .env sets QUEUE_ISOLATION_KEY to a value different from main's
+# (see hooks.example/post-serve/isolate-backend.sh, which writes it on serve).
+QUEUE_WORKER_CMD=""
+# e.g. for bookings-api (mirrors the queues of config/horizon.php 'local'):
+# QUEUE_WORKER_CMD="php artisan queue:work redis-local --queue=default,calendars,exports,integrations,notifications,scout,payments,power --tries=3 --timeout=1000 --sleep=3 --memory=512"
+QUEUE_WATCH_PATHS="app config routes bootstrap database .env composer.lock"
+QUEUE_ISOLATION_KEY="REDIS_PREFIX"
+QUEUE_WORKER_NICE=5
+
 # ------------------------------ serving (ws serve) ---------------------------
 # `ws serve` makes a task worktree reachable at <sub>.$BASE_DOMAIN using Laravel
 # Valet's nginx + wildcard cert. If you don't use `ws serve` you can leave this
