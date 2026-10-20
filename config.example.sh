@@ -149,15 +149,25 @@ EXTRA_WORKSPACE_FOLDERS=(
 # Both render the SAME set of tabs: one `yarn serve-<app>` per served app,
 # plus every SESSION_TABS entry (default: a queue worker and one agent per
 # repo — see SESSION_TABS below). What differs is the container:
-#   terminal  one tab per command in Terminal.app
-#   warp      ONE window holding the tabs, via a generated launch configuration
-#             (Warp has no CLI and its URI scheme can't carry a command)
+#   terminal   one tab per command in Terminal.app
+#   warp       ONE NEW window holding the tabs, via a generated launch
+#              configuration (Warp has no CLI and its URI scheme can't carry a
+#              command)
+#   warp-tabs  the tabs added to the Warp window you're already in, via one
+#              generated tab config each (~/.warp/tab_configs/ws-<slug>--tab*),
+#              colored per workspace and titled "<tab> · <slug>"
 #
-# Warp does have tab groups, but only as a UI gesture — a launch configuration
-# cannot declare one yet (warpdotdev/warp#13898; the patch adding
-# `tab_groups:`/`group:` is open in warp#13937). Once that ships, each
-# workspace's tabs can become a named collapsible group.
+# Warp does have tab groups, but only as a UI gesture — neither a launch nor a
+# tab config can declare one yet (warpdotdev/warp#13898). With warp-tabs the
+# gesture is one step away: select the workspace's tabs, right-click, "New
+# group with selected tabs" (Settings > Keyboard shortcuts can bind it).
 TERMINAL_APP="terminal"
+
+# Master switch for the auto-opened session terminals. Set to false to never
+# open terminals from `ws create` — the serve box then prints the manual
+# `yarn serve-<app>` command instead. Opt back in per run with
+# `TERMINAL_ENABLED=true ws create …` (ws-cli: `ws create … --terminals`).
+TERMINAL_ENABLED=true
 
 # Overrides the derived tab set above with your own commands, one tab each.
 # $WT_FRONTEND and $WT_BACKEND are substituted with the session worktree paths
@@ -192,6 +202,16 @@ SESSION_TABS=(
   "agent (ui):frontend:claude"
   # "scheduler:backend:php artisan schedule:work"
 )
+
+# ------------------------------ env backups ----------------------------------
+# A workspace's .env files start as copies of MAIN's; keys added or changed while
+# working there (a new integration's credentials, say) die with the worktree
+# unless they were ported to MAIN. Before deleting anything, `ws remove`
+# compares bookings-api/.env and every anny-ui/app-*/.env with MAIN's, prints
+# what only the workspace has, and copies the files here — flat, one directory
+# per slug, plus a DIFF.txt of the report. `ws envdiff` shows the same report
+# any time. Optional; the default is shown.
+# ENV_BACKUP_DIR="$HOME/Projects/ws_envs"
 
 # ------------------------------- deep links ----------------------------------
 # `ws url --install` registers a macOS app that owns a URL scheme, so a link in
@@ -294,6 +314,7 @@ APPS=(
   "account:app-account:/account:3"
   "panels:app-panels:/panel:4"
   "outlook:app-outlook:/outlook:5"
+  "designer:app-designer:/designer:6"
 )
 
 # Apps served by default (without --all-apps). Must be keys present in APPS.

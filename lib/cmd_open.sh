@@ -181,6 +181,9 @@ cmd_open() {
     fi
   fi
 
+  # An open that had to create first already logged `create` via the spawned
+  # `ws create`; this is the plain "opened an existing workspace" event.
+  "$DRY_RUN" || log_ws_event open "$slug"
   open_workspace_editors "$session_dir/$FRONTEND_DIR_NAME" "$session_dir/$BACKEND_DIR_NAME" \
     "$workspace_file" "$session_dir" "$slug"
 }

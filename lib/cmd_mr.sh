@@ -163,6 +163,8 @@ _mr_for_repo() {
   }
   url="$(printf '%s\n' "$out" | grep -oE 'https://[^ ]+/merge_requests/[0-9]+' | head -1)"
   ok "$label: $kind created -> $target"
+  # $slug is cmd_mr's local — visible here through bash's dynamic scoping.
+  log_ws_event mr "$slug" "repo=$label"
   [[ -n "$url" ]] && { printf '    %s\n' "$url"; open "$url"; }
 }
 

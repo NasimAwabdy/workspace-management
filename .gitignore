@@ -10,4 +10,7 @@ hooks/
 # Claude Code local settings
 .claude/
 
+# Append-only event log behind `ws stats` (this machine's history)
+.ws-history.jsonl
+
 planning/*

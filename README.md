@@ -23,8 +23,10 @@ adapts to your own repos, branches, domain, and app layout.
 - **macOS** — required for now; it uses BSD `sed` (`sed -i ''`), `open`, and the `code` CLI.
 - **git** with worktree support.
 - **VS Code** with the `code` command on your `PATH` (for `ws create`).
-- **python3** — for `ws sync` (keeps each workspace's Source Control ignore-list
-  current); usually already present, and skipped with a warning if not.
+- **python3** — for `ws sync`, `ws stats`, `ws envdiff` (and the env report in
+  `ws remove`), `ws mr`, `ws status`, and the tinted favicons of `ws serve`;
+  usually already present. Steps that need it degrade with a warning where they
+  can (sync, favicons); stats and envdiff require it.
 - For `ws serve` only: **Laravel Valet** (nginx + a wildcard cert for
   your domain), `nginx`, `yarn`, and `sudo` access to reload nginx. If you don't
   serve workspaces you can ignore that command entirely.
@@ -116,7 +118,9 @@ Everything is one command, `workspaces` (alias `ws`), with subcommands:
 | `ws list` (or bare `ws`) | List all workspaces, star the one you're in, link each served one to its landing URL. The `#` column numbers the rows for `ws open`. |
 | `ws open <N\|slug>` | Open a workspace by its `ws list` index (or slug) in the IDE(s) named by `FRONTEND_IDE`/`BACKEND_IDE` — VS Code by default, or PhpStorm/WebStorm/Zed. Same IDE on both sides → one combined window; different IDEs → each worktree opens separately. Index 0 (or `MAIN`) opens the main workspace (`MAIN_WORKSPACE_FILE`, or both main repos). A **slug with no workspace behind it is created first** (`--no-create` opts out; `--remote`/`--base` say where the branch comes from), which is what makes an `ws://open/<slug>` link work on a machine that has never seen that workspace. |
 | `ws serve [slug]` | Make a workspace reachable at `<sub>.<domain>` via Valet/nginx: rewrite envs, write the nginx block, install deps. Slug defaults to the current directory. Does **not** start dev servers — it prints the `yarn serve-*` commands. |
-| `ws remove [slug]` | Tear a workspace down safely: revert routing, remove worktrees, delete branches, clean the session dir. Refuses on unpushed work unless `--force`. Slug defaults to cwd. |
+| `ws recolor [N\|slug]` | Give a workspace a new accent color, drawn from the same picker `ws create` uses (random, from the unused colors farthest from everything live — its own current color included, so the result always looks different). Rewrites only the color keys in the `.code-workspace`; an open VS Code window updates at once. `--color '#rrggbb'` sets an exact color. Slug defaults to cwd. |
+| `ws remove [slug]` | Tear a workspace down safely: revert routing, remove worktrees, delete branches, clean the session dir. Refuses on unpushed work unless `--force`. Before deleting, runs the `envdiff` report and backs the workspace's `.env` files up to `ENV_BACKUP_DIR/<slug>/` (default `~/Projects/ws_envs`), so keys that only ever lived in the workspace are neither lost nor silently merged into MAIN. Slug defaults to cwd. |
+| `ws envdiff [N\|slug]` | What a workspace's `.env` files carry that MAIN's don't: keys MAIN lacks, changed values, commented-out lines, with `ws serve`'s host/port rewrites filtered out. Secret-looking values are masked unless `--show-secrets`. Run it before `remove` to port keys into MAIN by hand; nothing is ever written into MAIN's envs. |
 | `ws test [slug] [args]` | Run the backend suite against the workspace's **own** MySQL test DB (created on demand; args pass through to phpunit), so concurrent runs in different workspaces can't `migrate:fresh` over each other. Fails closed: no isolated DB → no run. Slug defaults to cwd. |
 | `ws queue [status\|start\|stop\|restart\|logs] [slug]` | The workspace's **own** queue worker (`QUEUE_WORKER_CMD`), supervised by `bin/queue-supervisor.sh`: a resident worker that is restarted gracefully whenever PHP code, `.env` or `composer.lock` change, so jobs never run stale code and idle cost is ~0% CPU. **Fails closed**: refuses to start unless the worktree `.env` sets `QUEUE_ISOLATION_KEY` (default `REDIS_PREFIX`) to a value different from main's — a worker on the shared namespace would steal other checkouts' jobs. `status` shows pending jobs per queue and any other worker found in the worktree. Stopped by `ws remove`. State in `<session>/.ws/`. |
 | `ws trust` | One-time sudoers rule (like `valet trust`) so `ws serve` can test/reload nginx without password prompts. Covers exactly `nginx -t` and `nginx -s reload`; never stores the password. `--revoke` removes it. |
@@ -184,8 +188,9 @@ a URL — a link can pick between your remotes, it can't introduce one.
 
 The slug can also travel as a query field (`ws://open?slug=<slug>`), which is
 what most trackers produce when you build a link in their UI. Clicking a link
-opens a new terminal window (`TERMINAL_APP`) running the command, so you see its
-output and `serve` can still ask for sudo. `ws url '<link>' --print` resolves a
+opens a terminal (`TERMINAL_APP`: a Terminal.app window, a new Warp window, or
+with `warp-tabs` a tab in your current Warp window) running the command, so you
+see its output and `serve` can still ask for sudo. `ws url '<link>' --print` resolves a
 link to the command without running it.
 
 **What a link cannot do.** A link that reaches you from outside is untrusted

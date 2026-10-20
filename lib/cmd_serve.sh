@@ -22,8 +22,8 @@ Arguments:
   SLUG        Workspace slug. If omitted, auto-detects from the current directory.
 
 Options:
-  --all-apps    Serve every known app (admin, shop, account, panels, outlook)
-                instead of just admin + shop.
+  --all-apps    Serve every known app (admin, shop, account, panels, outlook,
+                designer) instead of just admin + shop.
   --force       Regenerate the worktree .env files and rewrite/reload the nginx
                 block even if they already exist (overwrites manual edits).
   --dry-run     Print all actions (incl. the nginx block) without executing.
@@ -963,4 +963,5 @@ _ws_landing_box() {
     printf '\n  %sstart it with:%s cd %q && yarn serve-%s\n\n' \
       "$C_DIM" "$C_RESET" "$WT_FRONTEND" "$key"
   fi
+  "$DRY_RUN" || log_ws_event serve "$slug"
 }

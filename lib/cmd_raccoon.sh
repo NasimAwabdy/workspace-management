@@ -66,8 +66,24 @@ _raccoon_frame() {
 # Return the cursor below the raccoon and make it visible again.
 _raccoon_cleanup() { printf '\033[u\033[%dB\033[?25h' "$_RAC_N"; }
 
+# One exit path for every way out — normal end, the auto-quit, Ctrl-C, kill,
+# terminal close — so the cursor is always restored and the session's duration
+# is logged exactly once (the guard stops the EXIT trap re-running it after an
+# explicit call). Only a session that lasted at least a second counts.
+_RAC_DONE=false
+_RAC_T0=0
+_raccoon_finish() {
+  "$_RAC_DONE" && return 0
+  _RAC_DONE=true
+  _raccoon_cleanup; printf '\n'
+  local secs=$(( $(date +%s) - _RAC_T0 ))
+  (( secs > 0 )) && log_ws_event raccoon "" "duration=$secs"
+  return 0
+}
+
 cmd_raccoon() {
   ws_load_banner_gradient
+  _RAC_T0="$(date +%s)"
 
   local line
   _RAC_ART=()
@@ -134,7 +150,9 @@ RACCOON
   printf '\033[%dA\033[s\033[?25l' "$_RAC_N"
   # Restore the cursor on Ctrl-C (INT), kill (TERM), and terminal-close (HUP),
   # so an interrupted shimmer never leaves the cursor hidden.
-  trap '_raccoon_cleanup; exit 130' INT TERM HUP
+  # Signals just exit; the EXIT trap does the cleanup + duration logging.
+  trap 'exit 130' INT TERM HUP
+  trap '_raccoon_finish' EXIT
 
   # The animation is periodic — only _RAC_L distinct frames — so build each once
   # and cache it. After the first cycle the loop is just a lookup + a print, so
@@ -152,5 +170,5 @@ RACCOON
     phase=$(( (phase + _RAC_L - 1) % _RAC_L ))
   done
 
-  _raccoon_cleanup; printf '\n'
+  _raccoon_finish
 }

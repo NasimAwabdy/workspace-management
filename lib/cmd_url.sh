@@ -187,6 +187,10 @@ url_run() {
       open_warp_session "ws-url" "$(printf '%s\t%s\t%s' "${argv[1]}" "$HOME" "$cmd")" \
         || url_die "Could not open a Warp tab for: $cmd"
       ;;
+    warp-tabs)
+      open_warp_tabs "ws-url" "$(printf '%s\t%s\t%s' "${argv[1]}" "$HOME" "$cmd")" \
+        || url_die "Could not open a Warp tab for: $cmd"
+      ;;
     *)
       url_open_command_window "$cmd" "${argv[1]}-${argv[2]}" \
         || url_die "Could not open a terminal window for: $cmd"

@@ -7,7 +7,7 @@
 # being set before it is sourced.
 # -----------------------------------------------------------------------------
 
-WSM_VERSION="2.21.1"
+WSM_VERSION="2.25.0"
 
 # Sudoers drop-in installed by `ws trust` (NOPASSWD for the exact nginx
 # commands `ws serve` runs). Shared: trust writes it, serve checks for it.
@@ -361,8 +361,14 @@ load_config() {
     printf 'or point WSM_CONFIG at your config file.\n' >&2
     exit 1
   fi
+  # TERMINAL_ENABLED from the environment (ws-cli --terminals / a manual
+  # `TERMINAL_ENABLED=true ws create …`) must beat the config file's value.
+  local _env_terminal_enabled="${TERMINAL_ENABLED:-}"
   # shellcheck source=/dev/null
   source "$cfg"
+  if [[ -n "$_env_terminal_enabled" ]]; then
+    TERMINAL_ENABLED="$_env_terminal_enabled"
+  fi
   TASK_ID_PREFIX_LC="$(printf '%s' "$TASK_ID_PREFIX" | tr '[:upper:]' '[:lower:]')"
   # Optional settings — defaulted here so configs predating them keep working
   # under `set -u`.
@@ -374,7 +380,13 @@ load_config() {
   # Directory of custom lifecycle hooks (see run_hooks). Machine-specific, so it
   # defaults next to the command and is gitignored, like config.sh.
   WSM_HOOKS_DIR="${WSM_HOOKS_DIR:-$WSM_HOME/hooks}"
+  # Append-only event log behind `ws stats` (see log_ws_event). Gitignored, like
+  # config.sh — it's this machine's history.
+  WSM_HISTORY_FILE="${WSM_HISTORY_FILE:-$WSM_HOME/.ws-history.jsonl}"
   MAIN_WORKSPACE_FILE="${MAIN_WORKSPACE_FILE:-}"
+  # Where `ws remove` backs up a workspace's .env files (see lib/envs.sh). A
+  # sibling of the planning backup (~/Projects/ws_docs) by default.
+  ENV_BACKUP_DIR="${ENV_BACKUP_DIR:-$HOME/Projects/ws_envs}"
   # Git remote per repo — the two sides can live on different remotes (a fork
   # of one, upstream for the other), so this is not one global setting. Both
   # default to "origin", which is what every command used to hard-code.
@@ -430,6 +442,9 @@ load_config() {
   QUEUE_WORKER_NICE="${QUEUE_WORKER_NICE:-5}"
   # Terminal opened for post-create commands (e.g. yarn serve-*, an agent).
   TERMINAL_APP="${TERMINAL_APP:-terminal}"
+  # Whether `ws create` auto-opens the session terminals at all. Config or
+  # env; the ws-cli wrapper's --terminals/--no-terminals flags export this.
+  TERMINAL_ENABLED="${TERMINAL_ENABLED:-true}"
   # Set by `ws create` when it opens the terminals itself (see cmd_create).
   WS_TERMINALS_PENDING="${WS_TERMINALS_PENDING:-false}"
   # Commands auto-started in terminal tabs after ws create. $WT_FRONTEND and
@@ -496,9 +511,10 @@ open_terminal_window() {
 }
 
 # Warp: one launch configuration holding every tab, opened by name. Warp has no
-# CLI and its URI scheme can't carry a command, so a launch config is the only
-# way to start a tab that runs something. Each config opens its own window;
-# grouping the tabs instead needs warpdotdev/warp#13898 (+#13937).
+# CLI and its URI scheme can't carry a command, so a config file is the only
+# way to start a tab that runs something. A launch config always opens its own
+# WINDOW; for tabs in the window you're already in see open_warp_tabs below.
+# Grouping the tabs needs warpdotdev/warp#13898 (+#13937), still open.
 #
 # Two constraints that fail SILENTLY if broken:
 #   - warp://launch/ resolves a NAME inside ~/.warp/launch_configurations, not
@@ -539,24 +555,113 @@ print(json.dumps({"name": name, "windows": [{"tabs": tabs}]}, indent=2))
   open "warp://launch/${name}"
 }
 
-# Remove the Warp launch config `ws create` wrote for SLUG. Separate from
-# revert_serve_setup, which returns early without an nginx block — a workspace
-# can have a launch config without having been served.
+# Warp, into the CURRENT window: one tab config per tab, each opened by name.
+# `warp://tab_config/<stem>` adds a tab to the active window (a launch config
+# can't — it always opens a window), so this is what keeps one Warp window per
+# machine instead of one per workspace. The tabs arrive ungrouped: Warp has no
+# scripted way to make a tab group yet (warp#13898), so group them by hand —
+# select the tabs, right-click, "New group with selected tabs".
+#
+# Same silent-failure rules as launch configs, plus:
+#   - <stem> is the FILE name (case-insensitive), not the `name` field, so the
+#     stem doubles as the id. `ws-<slug>--tab<n>-<name>` keeps one workspace's
+#     files distinct from a slug that merely extends another ("foo", "foo-bar")
+#     — the `--tab` marker can't occur inside a slug.
+#   - Each `open` is asynchronous; without a pause between them Warp has been
+#     seen to swallow one or open a second window, hence the sleep.
+open_warp_tabs() {
+  local name="$1"; shift
+  local dir="$HOME/.warp/tab_configs"
+  local color; color="$(warp_tab_color "$name")"
+  local -a stems=()
+  local n=0 tab_name cwd cmd stem file line
+
+  mkdir -p "$dir"
+  for line in "$@"; do
+    [[ -n "$line" ]] || continue
+    IFS=$'\t' read -r tab_name cwd cmd <<<"$line"
+    n=$(( n + 1 ))
+    stem="$(warp_tab_stem "$name" "$n" "$tab_name")"
+    file="$dir/${stem}.toml"
+    stems+=("$stem")
+    if "$DRY_RUN"; then
+      printf '[dry-run] write %s ; open warp://tab_config/%s\n' "$file" "$stem"
+      printf '[dry-run]   tab %-14s cwd=%s  cmd=%s\n' "$tab_name" "$cwd" "$cmd"
+      continue
+    fi
+    # python3 for the quoting (see open_warp_session); a TOML basic string
+    # accepts every escape json.dumps emits.
+    python3 -c '
+import json, sys, functools
+json.dumps = functools.partial(json.dumps, ensure_ascii=False)
+name, title, color, cwd, cmd = sys.argv[1:6]
+print("# Generated by ws — removed again by `ws remove`.")
+print("name = " + json.dumps(name))
+print("title = " + json.dumps(title))
+print("color = " + json.dumps(color))
+print("")
+print("[[panes]]")
+print("id = \"main\"")
+print("type = \"terminal\"")
+print("directory = " + json.dumps(cwd))
+print("commands = [" + json.dumps(cmd) + "]")
+' "$name · $tab_name" "$tab_name · ${name#ws-}" "$color" "$cwd" "$cmd" > "$file" \
+      || { warn "Could not write the Warp tab config: $file"; return 1; }
+    vlog "Wrote Warp tab config: $file"
+  done
+  "$DRY_RUN" && return 0
+
+  for stem in "${stems[@]}"; do
+    open "warp://tab_config/${stem}" || { warn "Could not open Warp tab config: $stem"; return 1; }
+    sleep 0.5
+  done
+}
+
+# File stem for one tab config: `ws-<slug>--tab<n>-<name>`, NAME reduced to
+# [A-Za-z0-9_-] so "agent (api)" becomes "agent-api" and the stem stays a
+# clean URI path segment.
+warp_tab_stem() {
+  local name="$1" n="$2" tab_name="$3"
+  local safe; safe="$(printf '%s' "$tab_name" | tr -c 'A-Za-z0-9_-' '-' | sed -E 's/-+/-/g; s/^-//; s/-$//')"
+  printf '%s--tab%s-%s' "$name" "$n" "${safe:-tab}"
+}
+
+# One of Warp's six tab colors, chosen by hashing NAME so a workspace's tabs
+# share a color and neighbouring workspaces usually don't.
+warp_tab_color() {
+  local -a colors=(red green yellow blue magenta cyan)
+  local sum; sum="$(printf '%s' "$1" | cksum | cut -d' ' -f1)"
+  printf '%s' "${colors[$(( sum % 6 ))]}"
+}
+
+# Remove the Warp configs `ws create` wrote for SLUG — the launch config
+# (TERMINAL_APP=warp) and/or the tab configs (warp-tabs); both are looked for
+# regardless of the current setting, since it may have changed since create.
+# Separate from revert_serve_setup, which returns early without an nginx
+# block — a workspace can have session configs without having been served.
 remove_session_configs() {
   local slug="$1"
-  local file="$HOME/.warp/launch_configurations/ws-${slug}.yaml"
-  [[ -f "$file" ]] || return 0
-  if "$DRY_RUN"; then
-    printf '[dry-run] rm -f %s\n' "$file"
-    return 0
-  fi
-  # Explicit if, not `rm && vlog`: a failed rm (permissions) would otherwise
-  # trip set -e in the caller and abort the teardown over a leftover file.
-  if rm -f "$file"; then
-    vlog "Removed Warp launch config: $file"
-  else
-    warn "Could not remove Warp launch config: $file"
-  fi
+  local -a files=()
+  local f
+  f="$HOME/.warp/launch_configurations/ws-${slug}.yaml"
+  [[ -f "$f" ]] && files+=("$f")
+  for f in "$HOME/.warp/tab_configs/ws-${slug}--tab"[0-9]*.toml; do
+    [[ -f "$f" ]] && files+=("$f")
+  done
+  [[ ${#files[@]} -gt 0 ]] || return 0
+  for f in "${files[@]}"; do
+    if "$DRY_RUN"; then
+      printf '[dry-run] rm -f %s\n' "$f"
+      continue
+    fi
+    # Explicit if, not `rm && vlog`: a failed rm (permissions) would otherwise
+    # trip set -e in the caller and abort the teardown over a leftover file.
+    if rm -f "$f"; then
+      vlog "Removed Warp session config: $f"
+    else
+      warn "Could not remove Warp session config: $f"
+    fi
+  done
   return 0
 }
 
@@ -574,11 +679,14 @@ $(session_tabs "$wt_fe" "$wt_be" ${apps[@]+"${apps[@]}"})
 TABS
   [[ ${#tabs[@]} -gt 0 ]] || return 0
 
+  # Named after the workspace so re-creating it overwrites its own configs
+  # instead of littering ~/.warp.
   case "$TERMINAL_APP" in
     warp)
-      # Named after the workspace so re-creating it overwrites its own config
-      # instead of littering ~/.warp/launch_configurations.
       open_warp_session "ws-$(basename "$(dirname "$wt_fe")")" "${tabs[@]}"
+      ;;
+    warp-tabs)
+      open_warp_tabs "ws-$(basename "$(dirname "$wt_fe")")" "${tabs[@]}"
       ;;
     *)
       local n c cmd
@@ -594,6 +702,7 @@ TABS
 # running both would start every dev server twice on the same port.
 auto_open_terminals_if_needed() {
   local wt_fe="$1" wt_be="$2"; shift 2
+  [[ "$TERMINAL_ENABLED" == "true" ]] || return 0
   [[ "$FRONTEND_IDE" == "vscode" && "$BACKEND_IDE" == "vscode" ]] && return 0
   auto_open_terminals "$wt_fe" "$wt_be" "$@"
 }
@@ -855,6 +964,68 @@ workspace_slugs() {
   done
 }
 
+# ------------------------------- event history -------------------------------
+# `ws stats` reads an append-only JSONL log of what happened to workspaces: one
+# object per line, `ts` in epoch seconds (bash 3.2 can't parse dates, so we
+# never store them). Slug-less events (the raccoon timer) and per-event extras
+# (color, duration) are allowed. Commands must NOT log on --dry-run — the same
+# rule as hooks — so the log only ever holds things that really happened.
+#
+#   log_ws_event <event> <slug or ""> [key=value ...]
+#
+# A value that is a plain integer is written as a JSON number; anything else as
+# a string. Writing is best-effort: a failure to append must never break the
+# command that was logging.
+_hist_json_str() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '%s' "$s"
+}
+
+_log_ws_event_at() {
+  local ts="$1" event="${2:-}" slug="${3:-}"
+  if [[ $# -ge 3 ]]; then shift 3; else shift $#; fi
+  local line kv k v
+  line="{\"v\":1,\"ts\":$ts,\"event\":\"$(_hist_json_str "$event")\""
+  [[ -n "$slug" ]] && line+=",\"slug\":\"$(_hist_json_str "$slug")\""
+  for kv in "$@"; do
+    k="${kv%%=*}"; v="${kv#*=}"
+    if [[ "$v" =~ ^-?[0-9]+$ ]]; then
+      line+=",\"$(_hist_json_str "$k")\":$v"
+    else
+      line+=",\"$(_hist_json_str "$k")\":\"$(_hist_json_str "$v")\""
+    fi
+  done
+  line+="}"
+  mkdir -p "$(dirname "$WSM_HISTORY_FILE")" 2>/dev/null || true
+  printf '%s\n' "$line" >> "$WSM_HISTORY_FILE" 2>/dev/null || true
+}
+
+log_ws_event() {
+  _log_ws_event_at "$(date +%s)" "$@"
+}
+
+# Make sure every workspace that exists on disk is tracked as live. Idempotent:
+# a slug whose last lifecycle event is already an open `create` is left alone;
+# one with no history (made before logging existed, or outside the tool) — or
+# whose last event is a `remove` — gets a `create` stamped with its directory
+# mtime and accent color. Run at the start of `ws stats`, so the picture is
+# right even for workspaces the log never saw created.
+history_seed_live() {
+  local slug last mtime color
+  while IFS= read -r slug; do
+    [[ -n "$slug" ]] || continue
+    last="$( { grep -F "\"slug\":\"$slug\"" "$WSM_HISTORY_FILE" 2>/dev/null \
+               | grep -E '"event":"(create|remove)"' | tail -n1 \
+               | grep -o '"event":"[a-z]*"' | cut -d'"' -f4; } 2>/dev/null || true )"
+    [[ "$last" == "create" ]] && continue
+    mtime="$(stat -f '%B' "$WORKSPACES_ROOT/$slug" 2>/dev/null || date +%s)"
+    color="$(_ws_color "$slug")"
+    _log_ws_event_at "$mtime" create "$slug" ${color:+"color=$color"} seeded=1
+  done < <(workspace_slugs)
+}
+
 # Echo the workspace slug for the current directory (first path component under
 # WORKSPACES_ROOT), or return 1 if the cwd isn't inside a workspace. No output on
 # failure so callers can print their own error (avoids exit-in-subshell).
@@ -983,6 +1154,101 @@ _ws_color() {
   [[ -f "$file" ]] || return 0
   grep -o '"titleBar\.activeBackground"[[:space:]]*:[[:space:]]*"#[0-9a-fA-F]\{6\}"' "$file" 2>/dev/null \
     | grep -o '#[0-9a-fA-F]\{6\}' | head -n1
+}
+
+# Pick a legible title-bar foreground ("dark"/"light") for a "#rrggbb" bg using
+# the W3C relative-luminance threshold.
+contrast_foreground() {
+  local hex="${1#\#}" r g b lum
+  r=$((16#${hex:0:2})); g=$((16#${hex:2:2})); b=$((16#${hex:4:2}))
+  lum=$(((r * 299 + g * 587 + b * 114) / 1000))
+  if ((lum > 150)); then printf 'dark'; else printf 'light'; fi
+}
+
+# Uniform random index in [0, $1) from /dev/urandom. We deliberately do NOT use
+# $RANDOM: cmd_create picks the color via `$(random_workspace_color)`, and inside
+# command substitution bash 3.2 seeds $RANDOM straight from the PID — so
+# `$RANDOM % n` on consecutive `ws create` runs walks ADJACENT palette entries,
+# i.e. near-identical hues (the "same green every time" bug). urandom sidesteps
+# the PID entirely.
+_rand_below() {
+  local n="$1" r
+  r="$(od -An -N4 -tu4 /dev/urandom 2>/dev/null | tr -dc '0-9')"
+  [[ -n "$r" ]] || r="${RANDOM}${RANDOM}$$"   # fallback if /dev/urandom is missing
+  printf '%s' "$(( r % n ))"
+}
+
+# Neon palette: 25 evenly-spaced hues at high saturation (HSL 90/61). A new
+# workspace's color is drawn at RANDOM from the more-isolated HALF of the unused
+# colors: each unused color is scored by the distance (min squared RGB) to the
+# colors already live, ranked most-isolated first, the top half kept, and one of
+# those picked at random. Keeps accents well spread without always returning the
+# same argmax (which in RGB is biased toward the palette's primary-cube corners,
+# so a plain farthest-point pick cycled the same 5-7 colors). Recycles only once
+# more than 25 are live at the same time.
+random_workspace_color() {
+  local -a palette=(
+    '#f54242' '#f56d42' '#f59842' '#f5c342' '#f5ee42'
+    '#d1f542' '#a6f542' '#7bf542' '#50f542' '#42f55f'
+    '#42f58a' '#42f5b5' '#42f5e0' '#42e0f5' '#42b5f5'
+    '#428af5' '#425ff5' '#5042f5' '#7b42f5' '#a642f5'
+    '#d142f5' '#f542ee' '#f542c3' '#f54298' '#f5426d'
+  )
+  # Colors already worn by existing workspaces (any color, not just palette ones).
+  local -a used=()
+  local slug c
+  while IFS= read -r slug; do
+    [[ -n "$slug" ]] || continue
+    c="$(_ws_color "$slug")"
+    [[ "$c" =~ ^#[0-9a-fA-F]{6}$ ]] && used+=("$c")
+  done < <(workspace_slugs)
+
+  # Nothing to stay clear of yet — pick any palette color at random.
+  if (( ${#used[@]} == 0 )); then
+    printf '%s' "${palette[$(_rand_below "${#palette[@]}")]}"
+    return
+  fi
+
+  # Candidates: palette colors no one's wearing (no reuse). If all 25 are taken,
+  # allow the whole palette so we still return the most-isolated one.
+  local -a cand=() u seen
+  for c in "${palette[@]}"; do
+    seen=0
+    for u in "${used[@]}"; do [[ "$u" == "$c" ]] && { seen=1; break; }; done
+    (( seen )) || cand+=("$c")
+  done
+  (( ${#cand[@]} > 0 )) || cand=( "${palette[@]}" )
+
+  # Decompose the used colors into RGB once.
+  local -a ur=() ug=() ub=()
+  for c in "${used[@]}"; do
+    c="${c#\#}"; ur+=($((16#${c:0:2}))); ug+=($((16#${c:2:2}))); ub+=($((16#${c:4:2})))
+  done
+
+  # Score each candidate by its NEAREST used color (min squared RGB distance),
+  # then rank most-isolated first and keep the top half — a weighted shortlist
+  # of the colors most distinct from what's live.
+  local cr cg cb i mind d dr dg db h
+  local -a scored=()
+  for c in "${cand[@]}"; do
+    h="${c#\#}"; cr=$((16#${h:0:2})); cg=$((16#${h:2:2})); cb=$((16#${h:4:2}))
+    mind=-1
+    for i in "${!ur[@]}"; do
+      dr=$((cr - ur[i])); dg=$((cg - ug[i])); db=$((cb - ub[i]))
+      d=$((dr * dr + dg * dg + db * db))
+      if (( mind < 0 || d < mind )); then mind=$d; fi
+    done
+    scored+=("$mind $c")
+  done
+  # Rank by score (desc); slice off the more-isolated half (ceil, so always >=1).
+  local -a ranked=()
+  local line
+  while IFS= read -r line; do ranked+=("${line#* }"); done \
+    < <(printf '%s\n' "${scored[@]}" | sort -rn -k1,1)
+  local half=$(( (${#ranked[@]} + 1) / 2 ))
+  local -a top=( "${ranked[@]:0:$half}" )
+  # Pick one of that half at random.
+  printf '%s' "${top[$(_rand_below "${#top[@]}")]}"
 }
 
 # Derive a DNS-safe subdomain label from a slug: the task id for a task slug

@@ -100,5 +100,7 @@ cmd_share() {
 
   log "Sharing ${label} -> ${landing}   (Ctrl-C to stop)"
   # Hand the terminal to ngrok; the tunnel lives exactly as long as this command.
+  # A point event: the tunnel ends with Ctrl-C, which can't be logged reliably.
+  "$DRY_RUN" || log_ws_event share "${slug:-main}"
   exec "${cmd[@]}"
 }

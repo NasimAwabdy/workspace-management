@@ -24,6 +24,9 @@ when a release is tagged.
   shared main's Redis namespace, so main's Horizon ran workspace jobs on main's
   code (`Class "App\EntityActions\..." does not exist` in `failed_jobs`), and
   agents worked around it by pausing main Horizon for everyone.
+- `post-serve` hook event: `hooks/post-serve/*` run at the end of `ws serve`,
+  after envs, routing and deps are in place and before any dev server starts.
+  A failing hook only warns.
 - `TEST_DB_PORT` config (empty = default port).
 
 ### Fixed
@@ -32,6 +35,104 @@ when a release is tagged.
   with no password and failed with `Access denied ... (using password: NO)`. It
   now also exports `DB_HOST` / `DB_USERNAME` / `DB_PASSWORD` (and `DB_PORT`)
   from the `TEST_DB_*` config that `test_db_ensure` already uses.
+
+## [2.25.0] — 2026-10-08
+
+### Added
+- `ws envdiff [N|slug]`: what a workspace's `.env` files have that MAIN's
+  don't — keys MAIN lacks, changed values, commented-out lines — comparing
+  `bookings-api/.env` and every `anny-ui/app-*/.env` with its MAIN counterpart.
+  What `ws serve` rewrites (the workspace host in URLs, the pinned
+  HOST/PORT/HMR_PORT/STORAGE_PREFIX) is ignored, so the report only shows what
+  was added by hand. Secret-looking values are masked (`--show-secrets` shows
+  them). `.env.yarn` is out of scope.
+- `ws remove` runs that report after the confirmation and before deleting
+  anything, and backs the compared files up to `ENV_BACKUP_DIR/<slug>/`
+  (default `~/Projects/ws_envs`, a sibling of the planning backup) together
+  with a `DIFF.txt` of the unmasked report. An earlier backup for the slug is
+  moved aside, never overwritten; a failed backup aborts the teardown. Nothing
+  is ever written into MAIN's envs — porting keys over stays a manual step.
+  `--show-secrets` applies here too; `--dry-run` reports and writes nothing.
+
+### Changed
+- `ws help` lists the commands alphabetically.
+
+## [2.24.0] — 2026-10-05
+
+### Added
+- `ws recolor [N|slug]`: give an existing workspace a new accent color. Uses the
+  same picker as `ws create` (random from the more-isolated half of the unused
+  palette); the workspace's current color counts as taken, so the new one is
+  always clearly different. Only the color keys in the `.code-workspace` are
+  rewritten, so an open VS Code window recolors live and hand edits survive.
+  `--color '#rrggbb'` sets an exact color; `--dry-run` previews. The tinted
+  favicons follow on the next `ws serve`, the Chrome (MCP) window on its next
+  launch, and `ws stats` draws the workspace in its new color.
+
+### Changed
+- The accent picker (`random_workspace_color`, `_rand_below`,
+  `contrast_foreground`) moved from `lib/cmd_create.sh` to `lib/common.sh` so
+  `create` and `recolor` share one implementation. No behavior change.
+
+## [2.23.1] — 2026-09-14
+
+### Fixed
+- `app-designer` was missing from the `APPS` registry, so `ws serve --all-apps`
+  silently skipped it: no `.env` was copied into the worktree and no
+  `/designer` location was added to the workspace's nginx block. Registered as
+  `designer:app-designer:/designer:6` (port offset 6 — the next free slot in the
+  10-port block). Existing installs: add the line to your `config.sh` and re-run
+  `ws serve <slug> --all-apps` to pick it up.
+
+## [2.23.0] — 2026-09-07
+
+### Added
+- `TERMINAL_ENABLED` config/env switch (default `true`): set it to `false` to
+  stop `ws create` auto-opening the session terminals — the serve box then
+  prints the manual `yarn serve-<app>` hint instead of "starting the dev servers
+  in …". The environment beats the config file, so a one-off
+  `TERMINAL_ENABLED=true ws create <slug>` opens them on demand; since create is
+  idempotent on an existing workspace, that doubles as "open this workspace's
+  terminals now".
+- `TERMINAL_APP="warp-tabs"`: open a workspace's terminals as tabs in the Warp
+  window you're already in, instead of a new window per workspace. Each tab is
+  a generated tab config (`~/.warp/tab_configs/ws-<slug>--tab<n>-<name>.toml`)
+  opened via `warp://tab_config/<stem>`, colored per workspace and titled
+  `<tab> · <slug>`; `ws remove` deletes them again. Warp still can't script a
+  tab group (warp#13898), so grouping stays a right-click away — "New group
+  with selected tabs".
+
+## [2.22.1] — 2026-09-07
+
+### Changed
+- `ws stats` no longer lists every live workspace in its header. The graph's
+  accent colors already identify them, and dropping the legend gives the
+  scroll view more room for the timeline itself.
+
+## [2.22.0] — 2026-09-07
+
+### Added
+- `ws stats`: usage stats and a scrollable timeline of your workspaces. The
+  header shows how many workspaces you've created, removed and have live, the
+  most that ever existed at once (and when), the longest-lived one, average and
+  median lifespans, and how often each command was used. Below it, a timeline
+  in the shape of a git branch graph: time flows DOWN with today at the top,
+  one row per day, and each workspace is a slim vertical bar (`┃`) in its own
+  accent color with dot caps — a `•` on the day it was created, a `•` on the
+  day it was removed, open-ended while live — with notches where it was served/shared/
+  MR'd/tested/opened and per-day "+ created" / "× removed" annotations. Columns
+  are packed the way git packs lanes (a removed workspace frees its column), so
+  the graph is only as wide as your peak number of parallel workspaces. Scroll
+  DOWN into the past (`j/k`, `space/b`, `g/G`, `q`). When output isn't a
+  terminal, or with `--no-scroll`, it prints once; `--json` emits the numbers
+  and every lifespan.
+- The append-only event log behind it (`.ws-history.jsonl`, gitignored; path
+  overridable with `WSM_HISTORY_FILE`). `create`, `remove`, `serve`, `share`,
+  `mr`, `test` and `open` each record what they did — never on `--dry-run`.
+  Nothing is reconstructed from before logging began, but the workspaces that
+  exist when `ws stats` first runs are seeded from their creation date, so the
+  timeline is useful on day one. A workspace removed outside `ws remove` shows
+  as "untracked", ended at the last thing the log saw happen to it.
 
 ## [2.21.1] — 2026-08-28
 
@@ -634,7 +735,18 @@ the identity change.
   own `<sub>.anny.dev` subdomain via Laravel Valet/nginx, Cognitor key
   seeding, `install.sh`, and Homebrew tap packaging.
 
-[Unreleased]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.17.0...HEAD
+[Unreleased]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.25.0...HEAD
+[2.25.0]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.24.0...v2.25.0
+[2.24.0]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.23.1...v2.24.0
+[2.23.1]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.23.0...v2.23.1
+[2.23.0]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.22.1...v2.23.0
+[2.22.1]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.22.0...v2.22.1
+[2.22.0]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.21.1...v2.22.0
+[2.21.1]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.21.0...v2.21.1
+[2.21.0]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.20.0...v2.21.0
+[2.20.0]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.19.0...v2.20.0
+[2.19.0]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.18.0...v2.19.0
+[2.18.0]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.17.0...v2.18.0
 [2.17.0]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.16.1...v2.17.0
 [2.16.1]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.16.0...v2.16.1
 [2.16.0]: https://github.com/vinson-vinson-vinson/workspace-management/compare/v2.15.0...v2.16.0
